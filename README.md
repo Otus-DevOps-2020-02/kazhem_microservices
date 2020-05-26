@@ -13,8 +13,9 @@ Kazhemskiy Mikhail OTUS-DevOps-2020-02 microservices repository
 * `docker version` для проверки текущей установки докера
   <details>
   <summary>Пример</summary>
+
   ```shell
-  Client:
+    Client:
     Version:           19.03.6
     API version:       1.40
     Go version:        go1.12.17
@@ -46,10 +47,10 @@ Kazhemskiy Mikhail OTUS-DevOps-2020-02 microservices repository
 * `docker info` - информация о текущем состоянии docker daemon
   <details>
   <summary>Пример</summary>
-    ```shell
-        Client:
-    Debug Mode: false
 
+  ```shell
+    Client:
+    Debug Mode: false
     Server:
     Containers: 13
     Running: 2
@@ -102,7 +103,7 @@ Kazhemskiy Mikhail OTUS-DevOps-2020-02 microservices repository
 
     WARNING: bridge-nf-call-iptables is disabled
     WARNING: bridge-nf-call-ip6tables is disabled
-    ```
+   ```
   </details>
 * Проверены основновые команды docker:
   * Список запущенных контейнеров `docker ps`
