@@ -20,6 +20,9 @@ Kazhemskiy Mikhail OTUS-DevOps-2020-02 microservices repository
       - [bridge](#bridge)
       - [Анализ bridge](#анализ-bridge)
     - [Docker-compose](#docker-compose)
+      - [Переменные окружения](#переменные-окружения)
+      - [Имя проекта](#имя-проекта)
+    - [Задание со \*: docker-compose.override.yml](#задание-со--docker-composeoverrideyml)
 
 # Домашние задания
 
@@ -1038,3 +1041,58 @@ https://docs.docker.com/develop/develop-images/dockerfile_best-practices/
   10b87588e607        kazhem/post:1.0      "python3 post_app.py"    2 minutes ago       Up 2 minutes                                 src_post_1
   ```
 - Сервис работает
+
+#### Переменные окружения
+
+Приоритет источников для значения переменных в контейнере:
+
+When you set the same environment variable in multiple files, here’s the priority used by Compose to choose which value to use:
+
+1. Compose file
+2. Shell environment variables
+3. Environment file
+4. Dockerfile
+5. Variable is not defined
+
+- Подробнее про
+  - переменные окружения https://docs.docker.com/compose/environment-variables/
+  - подстановку переменных окружения https://docs.docker.com/compose/compose-file/#variable-substitution
+    > Important: The .env file feature only works when you use the docker-compose up command and does not work with docker stack deploy.
+  - `docker-compose config` чтобы посмотреть отрезолвленный compose-файл https://docs.docker.com/compose/reference/config/
+  - Compose CLI environment variables https://docs.docker.com/compose/reference/envvars/
+- Создан файл [src/.env](src/.env) со значениями переменных по умолчанию
+- Параметризованы следующие параметры
+  - `MONGO_VERSION=3.2` - версия mongodb
+  - `UI_VERSION=1.0` - версия ui
+  - `POST_VERSION=1.0` - версия post-py
+  - `COMMENT_VERSION=1.0` - версия comment
+  - `UI_PORT=9292` - порт публикации ui
+  - `USERNAME=kazhem` - имя пользователя для подстановки в имя образа.
+    Например `image: ${USERNAME}/ui:${UI_VERSION}`
+- Docker-compose запущен, сервис работает
+
+#### Имя проекта
+
+- https://docs.docker.com/compose/#multiple-isolated-environments-on-a-single-host
+- Имя проекта по умолчанию берётся из `basename` директории проекта
+- Переопределить имя проекта можно
+  - using the [-p command line option](https://docs.docker.com/compose/reference/overview/)
+  - using [COMPOSE_PROJECT_NAME environment variable](https://docs.docker.com/compose/reference/envvars/#compose_project_name)
+
+### Задание со \*: docker-compose.override.yml
+
+[Share Compose configurations between files and projects](https://docs.docker.com/compose/extends/)
+
+By default, Compose reads two files, a docker-compose.yml and an optional docker-compose.override.yml file.
+If a service is defined in both files, Compose merges the configurations.
+To use multiple override files, or an override file with a different name, you can use the -f option to specify the list of files. Compose merges files in the order they’re specified on the command line.
+
+- Добавлен файл docker-compose.override.yml](src/docker-compose.override.yml)
+- В [docker-compose.override.yml](src/docker-compose.override.yml) переопределены следующие параметры:
+  - В `/app` контейнера `post` монтируется локальная директория `./post-py`
+  - В `/app` контейнера `comment` монтируется локальная директория `./comment`
+  - Сервис `puma` в `ui` запускается с параметрами `--debug -w 2`
+- В [src/docker-compose.override.yml](src/docker-compose.override.yml) описание сервисов помещено в секцию `services:`
+- Для каждого сервиса в docker-compose.override.yml](src/docker-compose.override.yml) директория с кодом монтируется в директорию, указанную в соответтсвующей переменной окружения
+
+- **ВАЖНО** не работает из коробки с docker-machine, необходимо смотреть[docker-machine mount](https://docs.docker.com/machine/reference/mount/)
