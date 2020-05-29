@@ -17,6 +17,11 @@ Kazhemskiy Mikhail OTUS-DevOps-2020-02 microservices repository
       - [Запуск](#запуск)
       - [Образы приложений](#образы-приложений)
       - [Подключение volume](#подключение-volume)
+  - [HomeWork 14: Сетевое взаимодействие Docker контейнеров. Docker Compose. Тестирование образов](#homework-14-сетевое-взаимодействие-docker-контейнеров-docker-compose-тестирование-образов)
+    - [Работа с сетями в Docker](#работа-с-сетями-в-docker)
+      - [none](#none)
+      - [host](#host)
+      - [network namespaces](#network-namespaces)
       - [bridge](#bridge)
       - [Анализ bridge](#анализ-bridge)
     - [Docker-compose](#docker-compose)
@@ -604,10 +609,10 @@ https://docs.docker.com/develop/develop-images/dockerfile_best-practices/
       kazhem/comment:1.0
     docker run -d \
       --network=reddit \
-      -p 9292:9292 kazhem/ui:1.0
-    ```
+  ```
 - Написан пост
 - При перезапуске пост не удален
+
 
 ## HomeWork 14: Сетевое взаимодействие Docker контейнеров. Docker Compose. Тестирование образов
 
@@ -994,13 +999,14 @@ https://docs.docker.com/develop/develop-images/dockerfile_best-practices/
     - если пришёл не с `reddit_front` и на tcp-порт 9292, выполняется редирект на `10.0.1.2:9292` (ui)
   - в цепочке `POSTROUTING` трафик, исходящий из docker-сетей маскируется перед выходом с других интерфейсов
     - так же маскируется трафик между любыми интерфейсами с ip 10.0.1.2 на тот же ip 10.0.1.2 порт назначения tcp 9292
-- `docker-proxy` слушает порт 9292 для перенаправления трафика:
+  - `docker-proxy` слушает порт 9292 для перенаправления трафика:
   ```shell
   docker-user@docker-host:~$ ps ax | grep docker-proxy
   18969 ?        Sl     0:00 /usr/bin/docker-proxy -proto tcp -host-ip 0.0.0.0 -host-port 9292 -container-ip 10.0.1.2 -container-port 9292
   ```
 
 ### Docker-compose
+
 - Создан [src/docker-compose.yml](src/docker-compose.yml)
 - Экспортирована env переменная `export USERNAME=kazhem`
 - Запущены контейнеры с помощью `docker-compose`
