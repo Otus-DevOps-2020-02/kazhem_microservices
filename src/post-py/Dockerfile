@@ -5,7 +5,6 @@ ENV POST_DATABASE posts
 ENV APP_HOME /app
 
 
-RUN mkdir $APP_HOME
 WORKDIR $APP_HOME
 
 # Install requiremets (fat layer)
