@@ -46,6 +46,8 @@ staging:
   when: manual  # ручной запуск
   script:
     - echo 'Deploy'
+  only:
+  - /^\d+\.\d+\.\d+/
   environment:
     name: stage
     url: https://beta.example.com
@@ -55,6 +57,8 @@ production:
   when: manual  # ручной запуск
   script:
     - echo 'Deploy'
+  only:
+  - /^\d+\.\d+\.\d+/
   environment:
     name: production
     url: https://example.com
