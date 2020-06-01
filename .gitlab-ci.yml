@@ -41,6 +41,17 @@ deploy_dev_job:
     name: dev
     url: http://dev.example.com/
 
+branch review:
+  stage: review  # имя стадии
+  script: echo "Deploy to $CI_ENVIRONMENT_SLUG"
+  environment:
+    name: branch/$CI_COMMIT_REF_NAME  # имя бренча в имени окружения
+    url: http://$CI_ENVIRONMENT_SLUG.example.com  # имя бренча в url
+  only:
+    - branches  # запуск для каждой ветки репозитория
+  except:
+    - master  # не запускать для мастера
+
 staging:
   stage: stage
   when: manual  # ручной запуск
