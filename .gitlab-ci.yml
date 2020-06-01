@@ -17,7 +17,19 @@ before_script:
 build_job:
   stage: build
   script:
-    - echo 'Building'
+    # login
+    - docker info
+    - echo "$REGISTRY_PASSWORD" | docker login -u "$REGISTRY_USER" --password-stdin
+    # build
+    - cd ./src
+    - docker build -t ${REGISTRY_USER}/post:${CI_COMMIT_REF_NAME} ./post-py
+    - docker build -t ${REGISTRY_USER}/comment:${CI_COMMIT_REF_NAME} ./comment
+    - docker build -t ${REGISTRY_USER}/ui:${CI_COMMIT_REF_NAME} ./ui
+    # push
+    - docker push ${REGISTRY_USER}/post:${CI_COMMIT_REF_NAME}
+    - docker push ${REGISTRY_USER}/comment:${CI_COMMIT_REF_NAME}
+    - docker push ${REGISTRY_USER}/ui:${CI_COMMIT_REF_NAME}
+
 
 
 test_unit_job:
