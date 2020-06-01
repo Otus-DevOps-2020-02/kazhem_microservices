@@ -57,6 +57,7 @@ production:
   when: manual  # ручной запуск
   script:
     - echo 'Deploy'
+
   only:
   - /^\d+\.\d+\.\d+/
   environment:
