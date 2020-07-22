@@ -1,0 +1,15 @@
+[Unit]
+Description=Puma Server
+After=mongod.service
+Requires=mongod.service
+
+[Service]
+Type=simple
+PIDFile=/opt/reddit/puma-server.pid
+WorkingDirectory=/opt/reddit/
+
+ExecStart=/usr/local/bin/puma --pidfile /opt/reddit/puma-server.pid
+TimeoutSec=300
+
+[Install]
+WantedBy=multi-user.target

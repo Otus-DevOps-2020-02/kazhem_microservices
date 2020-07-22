@@ -28,6 +28,17 @@ Kazhemskiy Mikhail OTUS-DevOps-2020-02 microservices repository
       - [Переменные окружения](#переменные-окружения)
       - [Имя проекта](#имя-проекта)
     - [Задание со \*: docker-compose.override.yml](#задание-со--docker-composeoverrideyml)
+  - [HomeWork 15: Устройство Gitlab CI. Построение процесса непрерывной интеграции](#homework-15-устройство-gitlab-ci-построение-процесса-непрерывной-интеграции)
+    - [Подготовка](#подготовка-1)
+    - [Инсталляция Gitlab CI](#инсталляция-gitlab-ci)
+    - [Создание проекта](#создание-проекта)
+    - [Runner](#runner)
+    - [Тестирование Reddit](#тестирование-reddit)
+    - [Работа с окружениями](#работа-с-окружениями)
+      - [dev](#dev)
+      - [staging и production](#staging-и-production)
+      - [Динамические окружения](#динамические-окружения)
+    - [Задание со *: Сборка контейнера с приложением reddit](#задание-со--сборка-контейнера-с-приложением-reddit)
 
 # Домашние задания
 
@@ -613,7 +624,6 @@ https://docs.docker.com/develop/develop-images/dockerfile_best-practices/
 - Написан пост
 - При перезапуске пост не удален
 
-
 ## HomeWork 14: Сетевое взаимодействие Docker контейнеров. Docker Compose. Тестирование образов
 
 ### Работа с сетями в Docker
@@ -1102,3 +1112,364 @@ To use multiple override files, or an override file with a different name, you c
 - Для каждого сервиса в docker-compose.override.yml](src/docker-compose.override.yml) директория с кодом монтируется в директорию, указанную в соответтсвующей переменной окружения
 
 - **ВАЖНО** не работает из коробки с docker-machine, необходимо смотреть[docker-machine mount](https://docs.docker.com/machine/reference/mount/)
+
+
+## HomeWork 15: Устройство Gitlab CI. Построение процесса непрерывной интеграции
+
+
+### Подготовка
+* Packer'ом подготвлен образ c предустановленным docker (с помощью ansible)
+  * [packer](gitlab-ci/packer)
+  * [ansible](gitlab-ci/ansible)
+* Развернут инстанс на GCP с помощью [terraform](gitla-ci/terraform)
+
+### Инсталляция Gitlab CI
+Все действия выполняются на удалённой машине, развёрнутой в предыдущем пункте
+
+- Созданы необходимые директории
+  ```shell
+  sudo mkdir -p /srv/gitlab/config /srv/gitlab/data /srv/gitlab/logs
+  cd /srv/gitlab/
+  sudo touch docker-compose.yml
+  ```
+- Содержимое `docker-compose.yml` на основе файла из [документации](https://docs.gitlab.com/omnibus/docker/README.html#install-gitlab-using-docker-compose)
+  ```yaml
+  web:
+    image: 'gitlab/gitlab-ce:latest'
+    restart: always
+    hostname: 'gitlab.example.com'
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://35.187.77.192'
+        gitlab_rails['gitlab_shell_ssh_port'] = 2222
+    ports:
+      - '80:80'
+      - '443:443'
+      - '2222:22'
+    volumes:
+      - '/srv/gitlab/config:/etc/gitlab'
+      - '/srv/gitlab/logs:/var/log/gitlab'
+      - '/srv/gitlab/data:/var/opt/gitlab'
+  ```
+- Запущено развёртывание `sudo docker-compose up -d`
+- Спустя несколько минут установка завершена
+  ```shell
+  appuser@gitlab-stage-001:/srv/gitlab$ sudo docker-compose up -d
+  Pulling web (gitlab/gitlab-ce:latest)...
+  latest: Pulling from gitlab/gitlab-ce
+  e92ed755c008: Pull complete
+  b9fd7cb1ff8f: Pull complete
+  ee690f2d57a1: Pull complete
+  53e3366ec435: Pull complete
+  4e082d9ef448: Pull complete
+  108285b4c8fb: Pull complete
+  23c976adea47: Pull complete
+  aec9168cdc19: Pull complete
+  a1dbce85ed8f: Pull complete
+  1597ce8b7a37: Pull complete
+  Digest: sha256:6042d80d1c00c70a3508d5b10a213f481d788bbf716478c3ed1437141d490cb6
+  Status: Downloaded newer image for gitlab/gitlab-ce:latest
+  Creating gitlab_web_1 ... done
+  ```
+- В [веб интерфейсе](http://35.187.77.192) задан пароль для пользователя `root` (пользователь по умолчанию)
+- Успешно выполнен вход
+- Отменена возможность регистрации новых пользователей
+  *settings -> general -> sign-up restrictions ->sign-up enabled = false*, *save changes*
+- Изменён логин пользователя *Administrator* чтобы усложнить подбор пароля перебором (admin -> users -> Administrator -> Edit)
+- Добавлен SSH ключ в настройках пользователя
+- В `docker-comnpose.yml` добавлен параметр `gitlab_rails['gitlab_shell_ssh_port'] = 2222` для работы с git-репозиторием через ssh по порту `2222`
+
+### Создание проекта
+
+- Создана приватная группа `homework`
+- Создан приватный проект `example`
+- В репозиторий `kazhem_microservices` добавлен удалённый репозиторий созданного проекта
+  ```shell
+  git remote add gitlab http://35.187.77.192/homework/example.git
+  git push gitlab gitlab-ci-1
+  ```
+- Добавлен [.gitlab-ci.yml](.gitlab-ci.yml) содержащий шаблон пайплайна
+```yaml
+stages:
+  - build
+  - test
+  - deploy
+
+build_job:
+  stage: build
+  script:
+    - echo 'Building'
+
+test_unit_job:
+  stage: test
+  script:
+    - echo 'Testing 1'
+
+test_integration_job:
+  stage: test
+  script:
+    - echo 'Testing 2'
+
+deploy_job:
+  stage: deploy
+  script:
+    - echo 'Deploy'
+```
+- Запушен в репозиторий
+- Pipeline не работает, т.к. нет runners
+
+### Runner
+
+- На хосте с gitlab запущен раннер
+  ```shell
+  docker run -d --name gitlab-runner --restart always \
+    -v /srv/gitlab-runner/config:/etc/gitlab-runner \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    gitlab/gitlab-runner:latest
+  ```
+- Раннер зарегистрирован в gitlab
+  ```shell
+  docker exec -it gitlab-runner gitlab-runner register --run-untagged --locked=false
+  ```
+  ```shell
+  Runtime platform                                    arch=amd64 os=linux pid=13 revision=c127439c version=13.0.0
+  Running in system-mode.
+
+  Please enter the gitlab-ci coordinator URL (e.g. https://gitlab.com/):
+  http://35.187.77.192
+  Please enter the gitlab-ci token for this runner:
+  <token>
+  Please enter the gitlab-ci description for this runner:
+  [f05ea118d88e]: my-runner
+  Please enter the gitlab-ci tags for this runner (comma separated):
+  linux,xenial,ubuntu,docker
+  Registering runner... succeeded                     runner=Dow-mDat
+  Please enter the executor: docker, shell, docker-ssh+machine, virtualbox, docker+machine, kubernetes, custom, docker-ssh, parallels, ssh:
+  docker
+  Please enter the default Docker image (e.g. ruby:2.6):
+  alpine:latest
+  Runner registered successfully. Feel free to start it, but if it's running already the config should be automatically reloaded!
+  ```
+- Пайплайн автоматически был запущен и выполнен успешно
+
+### Тестирование Reddit
+
+- Код приложения склонирован из репозитория
+```shell
+git clone https://github.com/express42/reddit.git && rm -rf ./reddit/.git
+git add reddit/
+git commit -m "Add reddit app"
+git push gitlab gitlab-ci-1
+```
+- В [.gitlab-ci.yml](.gitlab-ci.yml) добавлены элементы пайпалйна для тестирования приложения. Новое содержимое
+  ```yaml
+  ---
+  image: ruby:2.4.2
+
+  stages:
+    - build
+    - test
+    - deploy
+
+  variables:
+    DATABASE_URL: "mongodb://mongo/user_posts"
+
+  before_script:
+    - cd reddit
+    - bundle install
+
+  build_job:
+    stage: build
+    script:
+      - echo 'Building'
+
+  test_unit_job:
+    stage: test
+    services:
+      - mongo:latest
+    script:
+      - ruby simpletest.rb
+      # - echo 'Testing 1'
+
+  test_integration_job:
+    stage: test
+    script:
+      - echo 'Testing 2'
+
+  deploy_job:
+    stage: deploy
+    script:
+      - echo 'Deploy'
+  ```
+- В [reddit/simpletest.rb](reddit/simpletest.rb) добавлен простой тест
+  ```ruby
+  require_relative './app'
+  require 'test/unit'
+  require 'rack/test'
+
+  set :environment, :test
+
+  class MyAppTest < Test::Unit::TestCase
+    include Rack::Test::Methods
+
+    def app
+      Sinatra::Application
+    end
+
+    def test_get_request
+      get '/'
+      assert last_response.ok?
+    end
+  end
+  ```
+- В [reddit/Gemfile](reddit/Gemfile) добавлена библиотека для тестирования
+  ```ruby
+  gem 'rack-test'
+  ```
+- Изменения закоммичены и запушены в gitlab
+  ```shell
+  git add .
+  git ci -m"Add reddit app tests to pipeline"
+  git push gitlab gitlab-ci-1
+  ```
+- Job succeeded
+
+### Работа с окружениями
+
+#### dev
+
+- В [.gitlab-ci.yml](.gitlab-ci.yml) stage `deploy` переименован в `review`
+  ```yaml
+  stages:
+    - build
+    - test
+    - review
+  ```
+- Job `deploy_job` переименован в `deploy_dev_job` и приведён к следующему виду
+  ```yaml
+  deploy_dev_job:
+    stage: review
+    script:
+      - echo 'Deploy'
+    environment:
+      name: dev
+      url: http://dev.example.com
+  ```
+- Выполнен commit и push
+  ```shell
+  git add .
+  git ci -m"Add deploy dev environment"
+  git push gitlab gitlab-ci-1
+  ```
+- В проекте в *operations* -> *environments* появилось окружение **dev**
+- При нажатии на *View deployment* происходит переход на указанный url
+
+#### staging и production
+
+- В [.gitlab-ci.yml](.gitlab-ci.yml) добавлены jobs `staging` и `production`
+  ```yaml
+  staging:
+    stage: stage
+    when: manual  # ручной запуск
+    script:
+      - echo 'Deploy'
+    environment:
+      name: stage
+      url: https://beta.example.com
+
+  production:
+    stage: production
+    when: manual  # ручной запуск
+    script:
+      - echo 'Deploy'
+    environment:
+      name: production
+      url: https://example.com
+  ```
+- Стадии stage и production были запущены вручную
+- В оба стейджа добавлено условие возможности запуска только с тэгом, соответствуюжем трйм числам, раздёлённым точкой
+  ```yaml
+  only:
+    - /^\d+\.\d+\.\d+/
+  ```
+- После пуша без тега, стадии stage и production недоступны
+- Выполнен пуш с тегом
+  ```shell
+  git add .
+  git commit -m "Add tag and push"
+  git tag 2.4.10
+  git push gitlab gitlab-ci-1
+  git push gitlab gitlab-ci-1 --tags
+  ```
+- Для job-а с тегом снова доступны стадии stage и prod
+
+#### Динамические окружения
+
+- Добавлен job `branch review`
+  ```yaml
+  branch review:
+    stage: review  # имя стадии
+    script: echo "Deploy to $CI_ENVIRONMENT_SLUG"
+    environment:
+      name: branch/$CI_COMMIT_REF_NAME  # имя бренча в имени окружения
+      url: http://$CI_ENVIRONMENT_SLUG.example.com  # имя бренча в url
+    only:
+      - branches  # запуск для каждой ветки репозитория
+    except:
+      - master  # не запускать для мастера
+  ```
+  Этот job определяет динамическое окружение для каждой ветки в репозитории, кроме ветки master
+- Проверено: была создана ветка `new-feature`. Создалось 2 окружения
+  - `branch/gitlab-ci-1` для текущего бренча
+  - `branch/new-feature` для созданного бренча
+
+
+### Задание со *: Сборка контейнера с приложением reddit
+
+- На основе:
+  - [ссылка](https://stanislas.blog/2018/09/build-push-docker-images-gitlab-ci/)
+  - [документация](https://docs.gitlab.com/ee/ci/docker/using_docker_build.html)
+- На сервере создан docker-compose.yml в папке /srv/gitlab-ruuner:
+  ```yaml
+  ---
+  version: '3.3'
+
+  services:
+    gitlab-runner:
+      image: gitlab/gitlab-runner:latest
+      container_name: gitlab_runner
+      restart: always
+      volumes:
+        - ./config/:/etc/gitlab-runner/
+        - /var/run/docker.sock:/var/run/docker.sock
+  ```
+- Для регистрации runner (см выше) можно также использовать команду:
+  ```shell
+  docker-compose run --rm gitlab-runner register -n \
+    --url http://35.187.77.192/ \
+    --registration-token Dow <token> \
+    --executor docker \
+    --description "Kazhem Docker Runner" \
+    --docker-image "docker:stable" \
+    --docker-volumes /var/run/docker.sock:/var/run/docker.sock
+  ```
+- Job build теперь выглядит так:
+  ```yaml
+  build_job:
+  stage: build
+  script:
+    # login
+    - docker info
+    - docker login -u $REGISTRY_USER -p $REGISTRY_PASSWORD
+    # build
+    - cd ./src
+    - docker build -t ${REGISTRY_USER}/post:${CI_COMMIT_REF_NAME} ./post-py
+    - docker build -t ${REGISTRY_USER}/comment:${CI_COMMIT_REF_NAME} ./comment
+    - docker build -t ${REGISTRY_USER}/ui:${CI_COMMIT_REF_NAME} ./ui
+    # push
+    - docker push ${REGISTRY_USER}/post:${CI_COMMIT_REF_NAME}
+    - docker push ${REGISTRY_USER}/comment:${CI_COMMIT_REF_NAME}
+    - docker push ${REGISTRY_USER}/ui:${CI_COMMIT_REF_NAME}
+  ```
+  - В проект добавлены переменные `REGISTRY_USER` и `REGISTRY_PASSWORD`
+  - Коммитится в dockerhub

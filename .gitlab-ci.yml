@@ -1,0 +1,87 @@
+image: ruby:2.4.2
+
+stages:
+  - build
+  - test
+  - review
+  - stage
+  - production
+
+variables:
+  DATABASE_URL: "mongodb://mongo/user_posts"
+
+# before_script:
+#   - cd reddit
+#   - bundle install
+
+build_job:
+  stage: build
+  script:
+    # login
+    - docker info
+    - docker login -u $REGISTRY_USER -p $REGISTRY_PASSWORD
+    # build
+    - cd ./src
+    - docker build -t ${REGISTRY_USER}/post:${CI_COMMIT_REF_NAME} ./post-py
+    - docker build -t ${REGISTRY_USER}/comment:${CI_COMMIT_REF_NAME} ./comment
+    - docker build -t ${REGISTRY_USER}/ui:${CI_COMMIT_REF_NAME} ./ui
+    # push
+    - docker push ${REGISTRY_USER}/post:${CI_COMMIT_REF_NAME}
+    - docker push ${REGISTRY_USER}/comment:${CI_COMMIT_REF_NAME}
+    - docker push ${REGISTRY_USER}/ui:${CI_COMMIT_REF_NAME}
+
+
+
+test_unit_job:
+  stage: test
+  services:
+    - mongo:latest
+  script:
+    - ruby simpletest.rb
+    # - echo 'Testing 1'
+
+test_integration_job:
+  stage: test
+  script:
+    - echo 'Testing 2'
+
+deploy_dev_job:
+  stage: review
+  script:
+    - echo 'Deploy'
+  environment:
+    name: dev
+    url: http://dev.example.com/
+
+branch review:
+  stage: review  # имя стадии
+  script: echo "Deploy to $CI_ENVIRONMENT_SLUG"
+  environment:
+    name: branch/$CI_COMMIT_REF_NAME  # имя бренча в имени окружения
+    url: http://$CI_ENVIRONMENT_SLUG.example.com  # имя бренча в url
+  only:
+    - branches  # запуск для каждой ветки репозитория
+  except:
+    - master  # не запускать для мастера
+
+staging:
+  stage: stage
+  when: manual  # ручной запуск
+  only:
+  - /^\d+\.\d+\.\d+/
+  script:
+    - echo 'Deploy'
+  environment:
+    name: stage
+    url: https://beta.example.com
+
+production:
+  stage: production
+  when: manual  # ручной запуск
+  only:
+  - /^\d+\.\d+\.\d+/
+  script:
+    - echo 'Deploy'
+  environment:
+    name: production
+    url: https://example.com

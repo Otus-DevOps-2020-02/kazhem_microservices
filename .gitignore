@@ -1,9 +1,30 @@
-.idea
-packer/variables.json
+####
+# IDE
+####
+.vscode/
+
+####
+# Packer
+####
+variables.json
+
+####
+# Terraform
+####
 *.tfstate
 *.tfstate.*.backup
 *.tfstate.backup
 *.tfvars
 .terraform/
+
+####
+# Python virtualenv
+####
+.venv
+venv
+
+####
+# Ansible
+####
 *.retry
-jdauphant.nginx
+**/roles_imported/*
