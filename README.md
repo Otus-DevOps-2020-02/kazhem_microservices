@@ -1473,3 +1473,478 @@ git push gitlab gitlab-ci-1
   ```
   - В проект добавлены переменные `REGISTRY_USER` и `REGISTRY_PASSWORD`
   - Коммитится в dockerhub
+
+
+## HomeWork 16: Введение в мониторинг. Системы мониторинга.
+
+### Prometheus: запуск, конфигурация, знакомство с Web UI
+
+#### Запуск docker-machine хоста для prometheus
+
+Создадим правило фаервола для Prometheus и Puma:
+
+```shell
+gcloud compute firewall-rules create prometheus-default --allow tcp:9090
+gcloud compute firewall-rules create puma-default --allow tcp:9292
+```
+
+Создадим Docker хост в GCE и настроим локальное окружение на работу с ним
+```shell
+export GOOGLE_PROJECT=<project_id>
+
+docker-machine create --driver google \
+  --google-machine-image https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/family/ubuntu-1604-lts \
+  --google-machine-type n1-standard-1 \
+  --google-zone europe-west1-b \
+  docker-host
+
+eval $(docker-machine env docker-host)
+```
+#### Запуск prometheus
+
+Систему мониторинга Prometheus будем запускать внутри Docker контейнера. Для начального знакомства воспользуемся готовым образом с DockerHub (использована последняя версия - более новая версия, чем в ДЗ)
+```shell
+docker run --rm -p 9090:9090 -d --name prometheus prom/prometheus:v2.14.0
+```
+```log
+Digest: sha256:907e20b3b0f8b0a76a33c088fe9827e8edc180e874bd2173c27089eade63d8b8
+Status: Downloaded newer image for prom/prometheus:v2.14.0
+ba7f92afa8bc8e3542d60f25faae8f76f1459fa3ea2aeb5c4e954b2bda73957c
+```
+
+Список запущенных контейнеров
+```shell
+docker ps
+```
+```log
+CONTAINER ID        IMAGE                     COMMAND                  CREATED             STATUS              PORTS                    NAMES
+ba7f92afa8bc        prom/prometheus:v2.14.0   "/bin/prometheus --c…"   49 seconds ago      Up 45 seconds       0.0.0.0:9090->9090/tcp   prometheus
+```
+
+#### Web-интерфейс
+IP запущенной docker-machine
+```shell
+docker-machine ip docker-host
+```
+```log
+34.78.188.236
+```
+
+Веб-интерфейс открыт http://34.78.188.236:9090
+
+По умолчанию prometheus собирает статистику о своей работе. Выберем, например, метрику `prometheus_build_info` и нажмем Execute, чтобы посмотреть информацию о версии.
+```log
+prometheus_build_info{branch="HEAD",goversion="go1.9.2",instance="localhost:9090",job="prometheus",revision="85f23d82a045d103ea7f3c89a91fba4a93e6367a",version="2.1.0"} 1
+```
+
+`prometheus_build_info` - название метрики - идентификатор собранной информации.
+
+`branch`, `goversion`, `instance`, etc... - лейбл - добавляет метаданных метрике, уточняет ее. Использование лейблов дает нам возможность не ограничиваться лишь одним названием метрик для идентификации получаемой информации. Лейблы содержаться в `{}` скобках и представлены наборами "ключ=значение".
+
+`1` - значение метрики - численное значение метрики, либо NaN, если значение недоступно
+
+#### Targets
+
+Targets (цели) - представляют собой системы или процессы, за которыми следит Prometheus. Помним, что Prometheus является pull системой, поэтому он постоянно делает HTTP запросы на имеющиеся у него адреса (endpoints). Посмотрим текущий список целей:
+
+Status -> Targets
+
+В Targets сейчас мы видим только сам Prometheus. У каждой цели есть свой список адресов _(endpoints)_, по которым следует обращаться для получения информации.
+
+В веб интерфейсе мы можем видеть состояние каждого endpoint-а (up); лейбл (`instance="someURL"`), который Prometheus автоматически добавляет к каждой метрике, получаемой с данного endpoint-а; а также время, прошедшее с момента последней операции сбора информации с endpoint-а.
+
+Также здесь отображаются ошибки при их наличии и можно отфильтровать только неживые таргеты.
+
+Обратите внимание на endpoint, который мы с вами видели на предыдущем слайде.
+
+Мы можем открыть страницу в веб браузере по данному HTTP пути (host:port/metrics), чтобы посмотреть, как выглядит та информация, которую собирает Prometheus. **Примечение** В веб-интерфейсе отображается url http://localhost:9090/metrics, который ссылается на localhost вместо ip удалённого интсанса. Чтобы посмотреть метрики, необходимо вручную указать ip http://34.78.188.236:9090/metrics
+  ```log
+  # HELP go_gc_duration_seconds A summary of the GC invocation durations.
+  # TYPE go_gc_duration_seconds summary
+  go_gc_duration_seconds{quantile="0"} 1.6556e-05
+  go_gc_duration_seconds{quantile="0.25"} 2.6098e-05
+  go_gc_duration_seconds{quantile="0.5"} 2.7583e-05
+  go_gc_duration_seconds{quantile="0.75"} 2.9423e-05
+  go_gc_duration_seconds{quantile="1"} 8.8754e-05
+  go_gc_duration_seconds_sum 0.858655005
+  go_gc_duration_seconds_count 31595
+  ...
+  ```
+Остановим контейнер
+```shell
+docker stop prometheus
+```
+
+### Мониторинг состояния микросервисов
+
+#### Переупорядочим структуру директорий
+
+До перехода к следующему шагу приведем структуру каталогов в более четкий/удобный вид:
+
+1. Создадим директорию [docker](docker) в корне репозитория и перенесем в нее директорию `docker-monolith` и файлы `docker-compose.*` и все `.env` (`.env` должен быть в [.gitgnore](.gitgnore)), в репозиторий закоммичен [.env.example](.env.example), из которого создается `.env`
+2. Создадим в корне репозитория директорию [monitoring](monitoring). В ней будет хранится все, что относится к мониторингу
+3. Не забываем про [.gitgnore](.gitgnore) и актуализируем записи при необходимости (добавлена запись `.env`)
+
+**P.S.** С этого момента сборка сервисов отделена от `docker-compose`, поэтому инструкции `build` **удалены** из [src/docker-compose.yml](src/docker-compose.yml).
+
+#### Создание Docker образа
+
+Познакомившись с веб интерфейсом Prometheus и его стандартной конфигурацией, соберем на основе готового образа с DockerHub свой Docker образ с конфигурацией для мониторинга наших микросервисов.
+
+Создайте директорию [monitoring/prometheus](monitoring/prometheus). Затем в этой директории создайте простой [Dockerfile](monitoring/prometheus/Dockerfile), который будет копировать файл конфигурации с нашей машины внутрь контейнера:
+
+```dockerfile
+FROM prom/prometheus:v2.1.0
+ADD prometheus.yml /etc/prometheus/
+```
+#### Конфигурация
+
+Вся конфигурация Prometheus, в отличие от многих других систем мониторинга, происходит через файлы конфигурации и опции командной строки.
+
+Мы определим простой конфигурационный файл для сбора метрик с наших микросервисов. В директории [monitoring/prometheus](monitoring/prometheus) создан файл [prometheus.yml](monitoring/prometheus/prometheus.yml) со следующим содержимым:
+```yaml
+---
+global:
+  scrape_interval: '5s'
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets:
+        - 'localhost:9090'
+
+  - job_name: 'ui'
+    static_configs:
+      - targets:
+        - 'ui:9292'
+
+  - job_name: 'comment'
+    static_configs:
+      - targets:
+        - 'comment:9292'
+```
+
+- Файл [monitoring/prometheus/Dockerfile](monitoring/prometheus/Dockerfile) исправлен в соответсвии с указаниями линтера (replace `ADD` with `COPY`)
+
+#### Создаем образ
+
+В директории prometheus собираем Docker образ:
+```shell
+export USER_NAME=kazhem
+cd monitoring/prometheus
+docker build -t $USER_NAME/prometheus .
+```
+
+В конце занятия нужно будет запушить на DockerHub собранные вами на этом занятии образы.
+
+#### Образы микросервисов
+
+В коде микросервисов есть healthcheck-и для проверки работоспособности приложения.
+
+Сборку образов теперь необходимо производить при помощи скриптов `docker_build.sh`, которые есть в директории каждого сервиса. С его помощью мы добавим информацию из Git в наш healthcheck.
+
+Пример скрипта
+```shell
+#!/bin/bash
+
+echo `git show --format="%h" HEAD | head -1` > build_info.txt
+echo `git rev-parse --abbrev-ref HEAD` >> build_info.txt
+
+docker build -t $USER_NAME/ui .
+```
+
+#### Соберем images
+
+Выполните сборку образов при помощи скриптов `docker_build.sh` в директории каждого сервиса.
+```shell
+cd src/comment && bash ./docker_build.sh && cd -
+cd src/post-py && bash ./docker_build.sh && cd -
+cd src/ui && bash ./docker_build.sh && cd -
+```
+
+Или все сразу из корня репозитория
+```shell
+for i in ui post-py comment; do cd src/$i; bash docker_build.sh cd -; done
+```
+
+#### docker-compose.yml
+
+Все `docker-compose.*` файлы перемещены из [src/](src/) в [docker/](docker/)
+
+Будем поднимать наш Prometheus совместно с микросервисами. Определите в вашем [docker/docker-compose.yml](docker/docker-compose.yml) файле новый сервис.
+```yaml
+services:
+...
+  prometheus:
+    image: ${USERNAME}/prometheus
+    ports:
+      - '9090:9090'
+    volumes:
+      - prometheus_data:/prometheus
+    command:  # доп. параметры коммандной строки
+      - '--config.file=/etc/prometheus/prometheus.yml'  # путь к конфигурационному файлу внутри контейнера
+      - '--storage.tsdb.path=/prometheus'  # путь к директории с данными внутри контейнера
+      - '--storage.tsdb.retention=1d'  # хранить данные за последние сутки
+
+volumes:
+  prometheus_data:
+```
+
+Мы будем использовать Prometheus для мониторинга всех наших микросервисов, поэтому нам необходимо, чтобы контейнер с ним мог общаться по сети со всеми другими сервисами, определенными в компоуз файле.
+
+```yaml
+    networks:
+      - reddit_front
+      - reddit_back
+```
+
+Также проверьте актуальность версий сервисов
+в `.env` и `.env.example`
+
+#### Запуск микросервисов
+
+Поднимем сервисы, определенные в docker/dockercompose.yml
+
+```shell
+cd docker && docker-compose up -d
+```
+
+Ошибка
+```log
+Pulling ui (kazhem/ui:1.0)...
+ERROR: manifest for kazhem/ui:1.0 not found: manifest unknown: manifest unknown
+```
+Причина -- отсутствие образов нужной версии?
+
+Запушен таг kazhem/ui:1.0 (для всех остальных сервисов по аналогии)
+  ```shell
+   docker tag kazhem/ui:latest kazhem/ui:1.0
+   docker push kazhem/ui:1.0
+  ```
+В [].env](docker/.env) указана версия 1.0 для приложений
+
+Запуск
+```shell
+docker-compose up -d
+Creating docker_post_db_1    ... done
+Creating docker_post_1       ... done
+Creating docker_ui_1         ... done
+Creating docker_prometheus_1 ... done
+Creating docker_comment_1    ... done
+```
+
+**Ошибка!** Приложение не запустилось
+
+Список запущенных сервисов
+```shell
+docker-compose ps
+```
+```log
+       Name                      Command               State            Ports
+--------------------------------------------------------------------------------------
+docker_comment_1      puma                             Exit 1
+docker_post_1         python3 post_app.py              Exit 2
+docker_post_db_1      docker-entrypoint.sh mongod      Up       27017/tcp
+docker_prometheus_1   /bin/prometheus --config.f ...   Up       0.0.0.0:9090->9090/tcp
+docker_ui_1           puma --debug -w 2                Exit 1
+```
+
+comment
+```shell
+docker logs docker_comment_1
+```
+```log
+/usr/local/lib/ruby/site_ruby/2.2.0/bundler/definition.rb:33:in `build': /app/Gemfile not found (Bundler::GemfileNotFound)
+        from /usr/local/lib/ruby/site_ruby/2.2.0/bundler.rb:135:in `definition'
+        from /usr/local/lib/ruby/site_ruby/2.2.0/bundler.rb:101:in `setup'
+        from /usr/local/lib/ruby/site_ruby/2.2.0/bundler/setup.rb:20:in `<top (required)>'
+        from /usr/local/lib/ruby/site_ruby/2.2.0/rubygems/core_ext/kernel_require.rb:59:in `require'
+        from /usr/local/lib/ruby/site_ruby/2.2.0/rubygems/core_ext/kernel_require.rb:59:in `require'
+        from /usr/local/bundle/bin/puma:27:in `<main>'
+```
+post
+```shell
+docker logs docker_post_1
+python3: can't open file 'post_app.py': [Errno 2] No such file or directory
+```
+
+Причина [docker/docker-compose.override.yml](docker/docker-compose.override.yml), в котором указано монтирование директорий с кодом с локального хоста.
+
+`docker/docker-compose.override.yml` переименован в [docker/docker-compose.override.yml.example](docker/docker-compose.override.yml.example)
+
+Теперь:
+  ```
+  docker-compose ps
+        Name                      Command               State           Ports
+  -------------------------------------------------------------------------------------
+  docker_comment_1      puma                             Up
+  docker_post_1         python3 post_app.py              Up
+  docker_post_db_1      docker-entrypoint.sh mongod      Up      27017/tcp
+  docker_prometheus_1   /bin/prometheus --config.f ...   Up      0.0.0.0:9090->9090/tcp
+  docker_ui_1           puma                             Up      0.0.0.0:9292->9292/tcp
+  ```
+Приложение открывается http://34.78.188.236:9292/
+Prometheus доступен http://34.78.188.236:9090
+В prometheus появились активные endpoint-ы `comment` и `ui` http://34.78.188.236:9090/targets
+
+#### Healthchecks
+
+Healthcheck-и представляют собой проверки того, что наш сервис здоров и работает в ожидаемом режиме. В нашем случае healthcheck выполняется внутри кода микросервиса и выполняет проверку того, что все сервисы, от которых зависит его работа, ему доступны.
+
+Если требуемые для его работы сервисы здоровы, то healthcheck проверка возвращает status = 1, что соответсвует тому, что сам сервис здоров.
+
+Если один из нужных ему сервисов нездоров или недоступен, то проверка вернет status = 0.
+
+#### Состояние сервиса UI
+
+В веб интерфейсе Prometheus выполните поиск по названию метрики `ui_health`.
+
+Действительно, есть такой.
+```log
+ui_health{branch="monitoring-1",commit_hash="2dec0f4",instance="ui:9292",job="ui",version="0.0.1"}
+```
+
+Построим график того, как менялось значение метрики ui_health со временем: вкладка _Graph_
+
+**Обратим внимание**, что, помимо имени метрики и ее значения, мы также видим информацию в лейблах о версии приложения, комите и ветке кода в Git-е.
+
+Видим, что статус UI сервиса был стабильно 1 (но это не так!), что означает, что сервис работал. Данный график оставьте открытым.
+
+**P.S.** Если у вас статус не равен 1, проверьте какой сервис
+недоступен (слайд 32), и что у вас заданы все aliases для DB.
+Не работалд commnent по причине того, что не было сетевого алиаса на сеть `post_db - comment_db`:
+  ```yaml
+  services:
+  post_db:
+    image: mongo:${MONGO_VERSION}
+    volumes:
+      - post_db:/data/db
+    networks:
+      back_net:
+        aliases:
+          - comment_db
+  ```
+
+##### Проверка метрик
+
+Остановим post сервис
+
+Мы говорили, что условились считать сервис здоровым, если все сервисы, от которых он зависит также являются здоровыми.
+
+Попробуем остановить сервис post на некоторое время и проверим, как изменится статус ui сервиса, который зависим от post.
+
+```shell
+docker-compose stop post
+```
+```log
+Stopping docker_post_1 ... done
+```
+
+После обновления графика метрика `ui_health` снова изменила значение на `0`.
+
+
+##### Поиск проблемы
+
+Помимо статуса сервиса, мы также собираем статусы сервисов, от которых он зависит. Названия метрик, значения которых соответствует данным статусам, имеет формат `ui_health_<service-name>`.
+
+Посмотрим, не случилось ли чего плохого с сервисами, от которых зависит UI сервис.
+
+Наберем в строке выражений ui_health_ и Prometheus нам предложит дополнить названия метрик.
+
+Проверим comment сервис. Видим, что сервис свой статус не менял в данный промежуток времени: `ui_health_comment_availability`
+
+А с post сервисом все плохо: `ui_health_post_availability`
+
+Чиним. Проблему мы обнаружили и знаем, как ее поправить (ведь мы же ее и создали :)). Поднимем post сервис.
+```shell
+docker-compose start post
+```
+```log
+Starting post ... done
+```
+Post сервис поправился: `ui_health_post_availability`
+UI сервис тоже: `ui_health
+
+### Сбор метрик хоста с использованием экспортера
+
+Экспортер похож на вспомогательного агента для сбора метрик.
+
+В ситуациях, когда мы не можем реализовать отдачу метрик Prometheus в коде приложения, мы можем использовать экспортер, который будет транслировать метрики приложения или системы в формате доступном для чтения Prometheus.
+
+Экспортер это:
+- Программа, которая делает метрики доступными для сбора Prometheus
+- Дает возможность конвертировать метрики в нужный для Prometheus формат
+- Используется когда нельзя поменять код приложения
+- Примеры: PostgreSQL, RabbitMQ, Nginx, Node exporter, cAdvisor
+
+
+#### Node exporter
+
+Воспользуемся [Node экспортер](https://github.com/prometheus/node_exporter) для сбора информации о работе Docker хоста (виртуалки, где у нас запущены контейнеры) и предоставлению этой информации в Prometheus.
+
+#### docker-compose.yml
+
+Node экспортер будем запускать также в контейнере. Определим еще один сервис в [docker/docker-compose.yml](docker/docker-compose.yml) файле.
+
+Не забудьте также добавить определение сетей для сервиса node-exporter, чтобы обеспечить доступ Prometheus к экспортеру.
+
+```yaml
+services:
+  ...
+  node-exporter:
+    image: prom/node-exporter:${NODE_EXPORTER_VERSION}
+    user: root
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      - front_net
+      - back_net
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.ignored-mount-points="^/(sys|proc|dev|host|etc)($$|/)"'
+```
+Чтобы сказать Prometheus следить за еще одним сервисом, нам нужно добавить информацию о нем в конфиг.
+
+Добавим еще один job:
+```yaml
+scrape_configs:
+  ...
+  - job_name: 'node'
+    static_configs:
+      - targets:
+        - 'node-exporter:9100'
+```
+Не забудем собрать новый Docker для Prometheus:
+```shell
+monitoring/prometheus $ docker build -t $USER_NAME/prometheus .
+```
+
+#### Пересоздадим наши сервисы
+
+```shell
+docker-compose down
+docker-compose up -d
+```
+
+Проверяем web-интерфейс http://34.78.188.236:9090/graph открылся **успешно**
+
+Посмотрим, список endpoint-ов Prometheus http://34.78.188.236:9090/targets - должен появится еще один endpoint.
+
+#### Получение информации
+
+Получим информацию об использовании CPU: `node_load1`
+```log
+node_load1{instance="node-exporter:9100",job="node"}	0
+```
+
+Зайдем на хост: `docker-machine ssh docker-host`
+
+Добавим нагрузки: `yes > /dev/null`
+
+На графике http://34.78.188.236:9090/graph?g0.range_input=1h&g0.expr=node_load1&g0.tab=0 видно, что нагрузка возросла.
+
+
+Ссылка на docker-hub https://hub.docker.com/u/kazhem

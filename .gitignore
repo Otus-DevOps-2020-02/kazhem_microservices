@@ -28,3 +28,8 @@ venv
 ####
 *.retry
 **/roles_imported/*
+
+####
+# ENV files
+####
+.env
