@@ -1948,3 +1948,109 @@ node_load1{instance="node-exporter:9100",job="node"}	0
 
 
 Ссылка на docker-hub https://hub.docker.com/u/kazhem
+
+### Задания со \*
+
+Добавлен [Makefile](Makefile)  с командами (документация:  [_1](https://www.ibm.com/developerworks/ru/library/l-debugmake/index.html), [_2](https://habrahabr.ru/post/132524/), [_3](http://rus-linux.net/nlib.php?name=/MyLDP/algol/gnu_make/gnu_make_3-79_russian_manual.html)):
+  - build_comment
+  - build_post
+  - build_ui
+  - build_prometheus
+  - build (all)
+  ----
+  - push_comment
+  - push_post
+  - push_ui
+  - push_prometheus
+  - push (all)
+
+### Задания со \*
+
+#### MongoDB exporter
+
+Добавьте в Prometheus мониторинг MongoDB с использованием необходимого экспортера.
+
+В качестве экспортера был выбран [percona/mongodb_exporter](https://github.com/percona/mongodb_exporter) от percona, так как представлен известным разработчиком, а так же как единственный, представленный на prometheus wiki [Default port allocations](https://github.com/prometheus/prometheus/wiki/Default-port-allocations)
+
+Экспортер [dcu/mongodb_exporter](https://github.com/dcu/mongodb_exporter), представленный на https://prometheus.io/docs/instrumenting/exporters/, по рекомендациям из ДЗ, выбран не был.
+
+##### Установка
+
+Добавлен Makefile target `mongodb_exporter_clone`, который клонирует репозиторий с github.
+```makefile
+mongodb_exporter_clone:
+	cd ./monitoring && git clone https://github.com/percona/mongodb_exporter.git
+```
+Клонирован репозиторий
+```shell
+make mongodb_exporter_clone
+```
+```log
+cd ./monitoring \
+        && (test -d ./mongodb_exporter || git clone https://github.com/percona/mongodb_exporter.git)
+Cloning into 'mongodb_exporter'...
+remote: Enumerating objects: 15, done.
+remote: Counting objects: 100% (15/15), done.
+remote: Compressing objects: 100% (13/13), done.
+remote: Total 5882 (delta 6), reused 5 (delta 2), pack-reused 5867
+Receiving objects: 100% (5882/5882), 6.40 MiB | 1.56 MiB/s, done.
+Resolving deltas: 100% (2950/2950), done.
+```
+Добавлен Makefile target `mongodb_exporter_docker_build`, который собирает докер-контейнер
+```makefile
+# mongodb_exporter
+MONGODB_EXPORTER_DOCKER_IMAGE_NAME?=${USER_NAME}/mongodb-exporter
+MONGODB_EXPORTER_VERSION?=v0.11.0
+mongodb_exporter_docker_build:
+	cd ./monitoring/mongodb_exporter && make docker DOCKER_IMAGE_NAME=${MONGODB_EXPORTER_DOCKER_IMAGE_NAME} DOCKER_IMAGE_TAG=${MONGODB_EXPORTER_VERSION}
+```
+Собран docker-образ `vscoder/mongodb-mongodb_exporter:v0.10.0`
+```shell
+make mongodb_exporter_docker_build
+```
+```log
+...
+Successfully built 8da76a8e3cbb
+Successfully tagged kazhem/mongodb-exporter:v0.11.0
+```
+
+В [docker/.env](docker/.env) добавлена переменная `MONGODB_EXPORTER_VERSION=v0.11.0`
+
+В [docker/docker-compose.yml](docker/docker-compose.yml) добавлен сервис `postdb-exporter`
+```yaml
+ postdb-exporter:
+    image: ${USERNAME}/mongodb-exporter:${MONGODB_EXPORTER_VERSION}
+    networks:
+      - back_net
+    environment:
+      MONGODB_URI: "mongodb://post_db:27017"
+```
+
+В [monitoring/prometheus/prometheus.yml](monitoring/prometheus/prometheus.yml) добавлен job
+```yaml
+scrape_config:
+  ...
+  - job_name: "post_db"
+    static_configs:
+      - targets:
+        - "postdb-exporter:9216"
+```
+
+В [.gitignore](.gitignore) добавлена строка
+```
+monitoring/mongodb_exporter
+```
+
+В Makefile target `build` добавлена сборка `mongodb_exporter_docker_build`
+
+В Makefile target `push` добавлена закачка `mongodb_exporter_push`
+
+Сборка всего
+```shell
+make build
+```
+
+Проверка http://34.78.188.236:9090
+```log
+mongodb_exporter_scrapes_total{instance="postdb-exporter:9216",job="post_db"}	8
+```

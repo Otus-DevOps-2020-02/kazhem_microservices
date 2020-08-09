@@ -33,3 +33,6 @@ venv
 # ENV files
 ####
 .env
+
+
+monitoring/mongodb_exporter
