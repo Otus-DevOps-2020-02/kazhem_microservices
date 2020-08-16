@@ -52,3 +52,13 @@ push_prometheus:
 	docker push ${USER_NAME}/prometheus
 
 push: push_comment push_post push_ui push_prometheus mongodb_exporter_push
+
+
+###
+# alertmanager
+###
+alertmanager_build:
+	cd ./monitoring/alertmanager && bash docker_build.sh
+
+alertmanager_push:
+	docker push ${USER_NAME}/alertmanager
