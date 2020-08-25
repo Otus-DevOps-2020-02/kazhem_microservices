@@ -1,3 +1,4 @@
+---
 version: '3.3'
 services:
   post_db:
@@ -5,10 +6,10 @@ services:
     volumes:
       - post_db:/data/db
     networks:
-      - back_net
-
+      back_net:
+        aliases:
+          - comment_db
   ui:
-    build: ./ui
     environment:
       APP_HOME: ${UI_APP_HOME}
     image: ${USERNAME}/ui:${UI_VERSION}
@@ -17,7 +18,6 @@ services:
     networks:
       - front_net
   post:
-    build: ./post-py
     environment:
       APP_HOME: ${POST_APP_HOME}
     image: ${USERNAME}/post:${POST_VERSION}
@@ -25,13 +25,13 @@ services:
       - front_net
       - back_net
   comment:
-    build: ./comment
     environment:
       APP_HOME: ${COMMENT_APP_HOME}
     image: ${USERNAME}/comment:${COMMENT_VERSION}
     networks:
       - front_net
       - back_net
+
 volumes:
   post_db:
 
