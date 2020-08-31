@@ -62,3 +62,42 @@ alertmanager_build:
 
 alertmanager_push:
 	docker push ${USER_NAME}/alertmanager
+
+###
+# fluentd
+###
+fluentd_build:
+	cd ./logging/fluentd && bash docker_build.sh
+
+fluentd_push:
+	docker push $${USER_NAME}/fluentd
+
+# app down
+###
+down_app:
+	cd docker \
+	&& docker-compose down
+
+down_monitoring:
+	cd docker \
+	&& docker-compose -f docker-compose-monitoring.yml down
+
+down_logging:
+	cd docker \
+	&& docker-compose -f docker-compose-logging.yml down
+
+
+###
+# run
+###
+run_app:
+	cd docker \
+	&& docker-compose up -d
+
+run_monitoring:
+	cd docker \
+	&& docker-compose -f docker-compose-monitoring.yml up -d
+
+run_logging:
+	cd docker \
+	&& docker-compose -f docker-compose-logging.yml up -d
